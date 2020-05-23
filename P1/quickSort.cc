@@ -6,7 +6,6 @@
 #include <chrono>
 
 using namespace std;
-using namespace chrono;
 
 void rellenaVector(int* &v, size_t size){
     for(size_t j = 0; j < size; j++)

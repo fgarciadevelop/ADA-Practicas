@@ -6,8 +6,13 @@
 #include <fstream>
 #include <vector>
 #include <limits>
+#include <unistd.h>
+#include <chrono>
+#include <algorithm>
+
 
 using namespace std;
+using namespace chrono;
 
 const string INFO_ARGUMENTOS_CORRECTOS = "$maxsum [-t] [--ignore_naive] -f file";
 const long SENTINEL = -1.0;
@@ -32,15 +37,12 @@ struct valores_t{
 }valoresDeEntrada;
 
 struct resultados_t{
-    long naive;
-    long memo;
-    long itTable;
-    long itVector;
-    vector<long> selection;
-    long selectionValue;
-    vector<vector<long>> iterativeTable;
+    long backtracking;
+    vector<unsigned> selection;
+    long expanded_nodes;
+    long discarded_nodes;
+    long cpu_time;
 }resultadosCalculados;
-
 
 //Gestión de errores.
 void mostrarArgumentosCorrectos(){
@@ -190,150 +192,80 @@ argumentos_t processArguments(int argc, char *argv[], opciones_t opcionesDeEntra
     return devuelto;
 }
 
-long solucionSinAlmacen(const vector<long> &v, int n, unsigned W){
-    if(n == 0){
-        return 0;
-    }else{
-        long S1 = solucionSinAlmacen(v, n-1, W);
-        long S2 = numeric_limits<long>::lowest();
-        if(v[n-1] <= W)
-            S2 = v[n-1] + solucionSinAlmacen(v, n-1, W-v[n-1]);
-        return max(S1, S2);
+long voraz(const vector<long> &v, long W){
+    vector<long> idx(v.size());
+    for(unsigned long i = 0; i < idx.size(); i++){
+        idx[i] = i;
     }
+    sort(idx.begin(), idx.end(), [&v](long x, long y){
+        return v[x] > v[y];
+    });
+
+    long acc_v = 0.0;
+    for(auto i : idx){
+        if(v[i] < W){
+            acc_v += v[i];
+            W -= v[i];
+        }
+    }
+
+    return acc_v;
 }
 
-long solucionConAlmacen(vector<vector<long>> &M, const vector<long> &v, int n, unsigned W){
-    if(M[n][W] != SENTINEL)
-        return M[n][W];
-    if(n == 0)
-        return M[n][W] = 0.0;
 
-    long S1 = solucionConAlmacen(M, v, n-1, W);
-    long S2 = numeric_limits<long>::lowest();
-
-    if(v[n-1] <= W)
-        S2 = v[n-1] + solucionConAlmacen(M, v, n-1, W - v[n-1]);
-
-    M[n][W] = max(S1, S2);
-    
-    return M[n][W];
+long add_rest( const vector<long> &v, size_t k){
+	long r = 0.0;
+	for(size_t i = k; i < v.size(); i++) {
+        r+= v[i];
+    }
+	return r;
 }
 
-long solucionIterativaConAlmacen(vector<vector<long>> &M, const vector<long> &v, int lastn, unsigned lastW){
-	vector<vector<long>> R(lastn+1, vector<long>(lastW+1));
-
-	for(unsigned W = 0; W <= lastW; W++) R[0][W] = 0;
-
-	for(int n = 1; n <= lastn; n++){
-		for(unsigned W = 1; W <= lastW; W++){
-			long S1 = R[n-1][W];
-			long S2 = numeric_limits<long>::lowest();
-			if(W >= v[n-1]){
-				S2 = v[n-1] + R[n-1][W-v[n-1]];
-			}
-			R[n][W] = max(S1, S2);
-		}
-	}
-	M = R;
-
-	return R[lastn][lastW];
-}
-
-long solucionVector(const vector<long> &v, int lastn, unsigned lastW){
-	vector<long> v0(lastW+1);
-	vector<long> v1(lastW+1);
-
-	for(unsigned W = 0; W <= lastW; W++){
-		v0[W] = 0;
+void calculaSolucion2(const vector<long> &v, long W, size_t k, vector<unsigned> &x, long acc_v, long &best_v){
+	if(k == x.size()){
+        resultadosCalculados.selection = x;
+		best_v = max(best_v, acc_v);
+		return;
 	}
 
-	for(long n = 1; n <= lastn; n++){
-		for(unsigned W = 1; W <= lastW; W++){
-			long S1 = v0[W];
-			long S2 = numeric_limits<long>::lowest();
-			if(W >= v[n-1]){
-				S2 = v[n-1] + v0[W-v[n-1]];
-			}
-			v1[W] = max(S1,S2);
-		}
-		swap(v0,v1);
-	}
-	return v0[lastW];
-}
-
-void sacaSelection(const vector<vector<long>> &M, const vector<long> &v, int n, unsigned W, vector<long> &sol){
-	if(n == 0) return;
-
-	long S1 = M[n-1][W];
-	long S2 = numeric_limits<long>::lowest();
-	if(W >= v[n-1])
-		S2 = v[n-1] + M[n-1][W-v[n-1]];
-
-	if(S1 >= S2){
-		sacaSelection(M, v, n-1, W, sol);
-	}else{
-		sol.insert(sol.begin(),v[n-1]);
-		sacaSelection(M, v, n-1, W - v[n-1], sol);
+	for (unsigned j = 0; j < 2; j++){
+		x[k] = j;
+		long present_v = acc_v + x[k] * v[k];
+		if(present_v <= W && present_v + add_rest(v, k+1)>=best_v){
+            resultadosCalculados.expanded_nodes++;
+			calculaSolucion2(v, W, k+1, x, present_v, best_v);
+		}else{
+            resultadosCalculados.discarded_nodes++;
+        }
 	}
 }
 
+long calculaSolucion1(const vector<long> &v, long W){
+    vector<unsigned> x(v.size());
+    long best_v = voraz(v, W);
+    calculaSolucion2(v, W, 0, x, 0, best_v);
+    return best_v;
+}
 
 resultados_t calcularResultados(opciones_t opciones, valores_t v){
-	/*    long naive;
-    long memo;
-    long itTable;
-    long itVector;
-    vector<long> selection;
-    long selectionValue;
-    vector<vector<long>> iterativeTable;*/
 
     resultados_t devuelto;
-   	if(v.valorN == 0 || v.valorT == 0 || v.entradaN.size() < 1){
-        devuelto.naive = 0;
-        devuelto.memo = 0;
-        devuelto.itTable = 0;
-        devuelto.itVector = 0;
-        for(unsigned long i = 0; i < devuelto.selection.size(); i++)
-        	devuelto.selection[i] = 0;
-        devuelto.selectionValue = 0;
+    vector<unsigned> y(v.entradaN.size());
+    long best_v = -1.0;
+    
+    auto start = clock(); 
+    best_v = calculaSolucion1(v.entradaN, v.valorT);
+    auto end = clock();
+    auto tiempo = 1000.0 * (end-start) / CLOCKS_PER_SEC;
 
-        vector<vector<long>> vacio;
-        vector<long> lvacio;
+	devuelto.backtracking = best_v;
+	devuelto.expanded_nodes = resultadosCalculados.expanded_nodes;
+	devuelto.discarded_nodes = resultadosCalculados.discarded_nodes;
+	devuelto.cpu_time = tiempo;
 
-        if(v.valorN != 0 && v.valorT == 0){
-        	for(long i = 0; i <= v.valorN; i++){
-				lvacio.push_back(0);
-				vacio.push_back(lvacio);
-				lvacio.pop_back();
-        	}
-        }else if(v.valorN == 0 && v.valorT != 0){
-			for(unsigned long i = 0; i <= v.valorT; i++){
-				lvacio.push_back(0);
-        	}
-        	vacio.push_back(lvacio);
-        }else{
-        	lvacio.push_back(0);
-			vacio.push_back(lvacio);
-        }
-        devuelto.iterativeTable = vacio;
-
-    }else{
-        if(!opciones.excluyeRecursivaSinAlmacen){
-            devuelto.naive = solucionSinAlmacen(v.entradaN, v.valorN, v.valorT);
-        }
-        vector<vector<long>> M(v.valorN+1, vector<long>(v.valorT+1, SENTINEL));
-        devuelto.memo = solucionConAlmacen(M,v.entradaN, v.valorN, v.valorT);
-
-		devuelto.itTable = solucionIterativaConAlmacen(M, v.entradaN, v.valorN, v.valorT);
-        if(opciones.iterativa){	
-        	devuelto.iterativeTable = M;
-        }
-
-        devuelto.itVector = solucionVector(v.entradaN, v.valorN, v.valorT);
-        sacaSelection(M, v.entradaN, v.valorN, v.valorT, devuelto.selection);
-        devuelto.selectionValue = 0;
-        for(unsigned long i = 0; i < devuelto.selection.size(); i++){
-        	devuelto.selectionValue += devuelto.selection[i];
+    for(unsigned long i = 0; i < resultadosCalculados.selection.size(); i++){
+        if(resultadosCalculados.selection[i] == 1){
+            devuelto.selection.push_back(v.entradaN[i]);
         }
     }
 
@@ -341,37 +273,16 @@ resultados_t calcularResultados(opciones_t opciones, valores_t v){
 }
 
 void mostrarResultados(resultados_t resultadosCalculados, opciones_t opcionesDeEntrada){
-    if(!opcionesDeEntrada.excluyeRecursivaSinAlmacen)
-        cout << "Naive: " << resultadosCalculados.naive << endl;
 
-    cout << "Memoization: " << resultadosCalculados.memo << endl;
-	cout << "Iterative (table): " << resultadosCalculados.itTable << endl;   
-
-    cout << "Iterative (vector): " << resultadosCalculados.itVector << endl;
-    cout << "Selection: ";
-    if(resultadosCalculados.selection.size() == 0)
-    	cout << endl;
-    else{
-	    for(unsigned int i = 0; i < resultadosCalculados.selection.size(); i++){
-	        if(i == resultadosCalculados.selection.size()-1)
-	            cout << resultadosCalculados.selection[i] << " " << endl;
-	        else
-	            cout << resultadosCalculados.selection[i] << " ";
-	    }
+	cout << "Backtracking: " << resultadosCalculados.backtracking << endl;
+	cout << "Selection: ";
+	for(unsigned long i = 0; i < resultadosCalculados.selection.size(); i++){
+		cout << " " << resultadosCalculados.selection[i];
 	}
-    cout << "Selection value: " << resultadosCalculados.selectionValue << endl;
-
-    if(opcionesDeEntrada.iterativa){
-    	cout << "Iterative table:" << endl;
-        for(unsigned long i = 0; i < resultadosCalculados.iterativeTable.size(); i++){
-        	for(unsigned long j = 0; j < resultadosCalculados.iterativeTable[i].size(); j++)
-        		cout << resultadosCalculados.iterativeTable[i][j] << " ";
-        	if(i != resultadosCalculados.iterativeTable.size()-1)
-        		cout << endl;
-        }
-        cout << endl;
-    }
-    
+	cout << endl;
+	cout << "Expanded nodes: " << resultadosCalculados.expanded_nodes << endl;
+	cout << "Discarded nodes: " << resultadosCalculados.discarded_nodes << endl;
+	cout << "CPU time(ms): " << resultadosCalculados.cpu_time << endl;
 }
 
 

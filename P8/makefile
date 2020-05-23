@@ -1,13 +1,13 @@
 #Francisco García Mora 48780988N
 OPTS = -Wall -O3 -std=c++0x
 
-maxsum: maxsum.cc
-	g++ ${OPTS} -o maxsum maxsum.cc	 
+maxsum-bt: maxsum-bt.cc
+	g++ ${OPTS} -o maxsum-bt maxsum-bt.cc	 
 
-all: maxsum
+all: maxsum-bt
 
-tar: maxsum.cc makefile
-	tar cvfz 48780988N.tar.gz maxsum.cc makefile
+tar: maxsum-bt.cc makefile
+	tar cvfz 48780988N.tar.gz maxsum-bt.cc makefile
 
 clean: 
-	rm maxsum 48780988N.tar.gz
+	rm maxsum-bt 48780988N.tar.gz
