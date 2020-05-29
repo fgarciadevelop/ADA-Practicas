@@ -201,6 +201,23 @@ bool processArguments(int argc, char *argv[]){
 //* Funciones *
 //*************
 
+long memoization(int n, int t, vector<vector<long>> &M, const vector<long> &v, long k){
+    if(M[n][t] != SENTINEL)
+        return M[n][t];
+    if(n == k)
+        return M[n][t] = 0.0;
+
+    long S1 = memoization(n-1, t, M, v, k);
+    long S2 = numeric_limits<long>::lowest();
+
+    if(v[n-1] <= t)
+        S2 = v[n-1] + memoization(n-1, t - v[n-1], M, v, k);
+
+    M[n][t] = max(S1, S2);
+    
+    return M[n][t];
+}
+
 long add_rest( const vector<long> &v, size_t k){
 	long r = 0.0;
 	for(size_t i = k; i < v.size(); i++) {
@@ -231,75 +248,39 @@ long voraz(const vector<long> &v, long t, long k){
     return acc_v;
 }
 
-
-long cotaPesimista(const vector<long> &v, long t){
-	typedef vector<short> Sol;
-	typedef tuple<long, Sol, long> Node;
-	priority_queue<Node> pq;
-
-	//long best_val = mochilaDiscreta(v, 0, t); mejora por hacer
-	long best_val = voraz(v, t, 0);
-	pq.emplace(0, Sol(v.size()), 0);
-	//pq.push(Node(0,Sol(v.size()), 0));
-	while(!pq.empty()){
-		//auto[value, x, k] = pq.top();
-
-		long value; unsigned k; Sol x;
-		tie(value, x, k) = pq.top();
-		pq.pop();
-
-		if(k == v.size()){
-			best_val = max(value, best_val);
-			continue;
-		}
-
-		for(unsigned j = 0; j < 2; j++){
-			x[k] = j;
-
-			long new_value = value + x[k] * v[k];
-
-			if(new_value <= t){
-				best_val = max(best_val, new_value + voraz(v, t - new_value, k+1));
-
-				double opt_bound = new_value + add_rest(v, k+1);
-				if(opt_bound > best_val)
-					pq.emplace(new_value, x, k+1);
-			}
-		}
-	}
-
-	return best_val;
+bool is_better(long v1, long v2){
+	return v1 > v2;
 }
 
-bool is_worse(long v1, long v2){
-	return v2 > v1;
-}
-
-long funcion1(const vector<long> &v, long t){
+long funcion1(const vector<long> &v, long t, vector<vector<long>> &M){
 	typedef vector<short> Sol;
 	typedef tuple<long, long, Sol, long> Node; //Añade  opt_bound
+	//typedef tuple<long, Sol, long> Node; //Añade  opt_bound
 	priority_queue<Node> pq;
 
 	long best_val = voraz(v, t, 0);
-	long opt_bound = add_rest(v, 0);
+	//long opt_bound = add_rest(v, 0);
+	long opt_bound = memoization(valoresDeEntrada.valorN, t, M, v, 0);
 
 	pq.emplace(opt_bound, 0, Sol(v.size()), 0);
-	
+	//pq.emplace(0, Sol(v.size()), 0);
 	while(!pq.empty()){
-		//auto[value, x, k] = pq.top();
+		
 
 		long value; unsigned k; Sol x;
 		tie(ignore, value, x, k) = pq.top();
+		//tie(value, x, k) = pq.top();
 		pq.pop();
 
 //no fiarse de esto
-		if(opt_bound > best_val){
+		/*if(opt_bound > best_val){
 			resultadosCalculados.nodos.prometedoresDescartados++;
 		}
+		cout << k << "   " << v.size() << endl;*/
 
 		if(k == v.size()){
 			resultadosCalculados.nodos.completados++;
-			if(!is_worse(value, best_val)){
+			if(value >= best_val){
 				best_val = value;
 				resultadosCalculados.nodos.actualizacionNodoCompletado++;
 			}
@@ -307,22 +288,25 @@ long funcion1(const vector<long> &v, long t){
 		}
 		resultadosCalculados.nodos.expandidos++;
 		for(int j = 1; j >= 0; j--){
+		//for(int j = 0; j < 2; j++){
 			x[k] = j;
 
 			long new_value = value + x[k] * v[k];
 
 			if(new_value <= t){
 				long pessimist = new_value + voraz(v, t - new_value, k+1);
-				if(!is_worse(pessimist, best_val)){
+				if(pessimist >= best_val){
 					resultadosCalculados.nodos.actualizacionNodoNoCompletado++;
 					best_val = pessimist;
 				}
 				//best_val = max(best_val, new_value + voraz(v, t - new_value, k+1));
 
-				double opt_bound = new_value + add_rest(v, k+1);
+				double opt_bound = new_value + memoization(valoresDeEntrada.valorN, t-new_value, M, v, k+1);
 				if(opt_bound > best_val){
 					resultadosCalculados.nodos.added++;
+					cout << k << endl;
 					pq.emplace(opt_bound, new_value, x, k+1);
+					//pq.emplace(new_value, x, k+1);
 				}else{
 					resultadosCalculados.nodos.noPrometedores++;
 				}
@@ -341,7 +325,8 @@ long funcion1(const vector<long> &v, long t){
 //**************
 
 void calcularResultados(){
-    resultadosCalculados.suma = funcion1(valoresDeEntrada.entradaN, valoresDeEntrada.valorT);
+	vector<vector<long>> M(valoresDeEntrada.valorN+1, vector<long>(valoresDeEntrada.valorT+1, SENTINEL));
+    resultadosCalculados.suma = funcion1(valoresDeEntrada.entradaN, valoresDeEntrada.valorT, M);
 }
 
 void mostrarResultados(){
